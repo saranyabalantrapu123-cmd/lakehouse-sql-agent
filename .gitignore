@@ -1,0 +1,18 @@
+# Generated data (download + build outputs). Tiny test fixtures live in tests/fixtures/.
+data/
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Secrets / local
+.env
+.streamlit/secrets.toml
+.DS_Store

@@ -1,0 +1,5 @@
+product_id,product_category_name,product_name_lenght,product_description_lenght,product_photos_qty,product_weight_g,product_length_cm,product_height_cm,product_width_cm
+p1,beleza_saude,40,287,1,225,16,10,14
+p2,esporte_lazer,44,276,1,1000,30,18,20
+p3,,,,,500,10,10,10
+p4,pc_gamer,50,300,2,2000,40,20,30

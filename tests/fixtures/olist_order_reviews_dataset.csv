@@ -1,0 +1,8 @@
+"review_id","order_id","review_score","review_comment_title","review_comment_message","review_creation_date","review_answer_timestamp"
+"r1","o1","5",,"Chegou antes do prazo, recomendo!","2017-01-11 00:00:00","2017-01-12 10:00:00"
+"r2","o2","1","Atrasado","Demorou muito,
+nao recomendo","2017-02-26 00:00:00","2017-02-27 08:00:00"
+"r2","o2","1","Atrasado","Demorou muito,
+nao recomendo","2017-02-26 00:00:00","2017-02-27 08:00:00"
+"r3","o3","3",,,"2017-02-21 00:00:00","2017-02-22 00:00:00"
+"r4","o4","4",,,"2017-03-26 00:00:00","2017-03-27 00:00:00"

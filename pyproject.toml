@@ -1,0 +1,13 @@
+[project]
+name = "lakehouse-sql-agent"
+version = "0.1.0"
+description = "Data-discovery and text-to-SQL agent over a bronze/silver/gold DuckDB lakehouse, with guardrails, lineage and an MCP server."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Siva Saranya Balantrapu" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Third-party (litellm/pydantic) import-time noise.
+filterwarnings = ["ignore::UserWarning:pydantic.*", "ignore::DeprecationWarning"]

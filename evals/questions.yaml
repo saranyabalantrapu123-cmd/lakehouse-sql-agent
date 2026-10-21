@@ -1,0 +1,136 @@
+# 20 business questions with hand-written gold SQL over the built lakehouse.
+# Each gold query is verified to run on the real data (`python -m evals.run_eval --check-gold`).
+# Scoring is execution accuracy: the agent's result set must match the gold result set
+# (row order ignored, numeric tolerance applied, extra agent columns allowed).
+
+- id: q01
+  question: How many orders are there in total?
+  sql: SELECT count(*) AS orders FROM gold.fact_orders
+
+- id: q02
+  question: How many unique customers (real people, not order-level customer ids) are there?
+  sql: SELECT count(DISTINCT customer_unique_id) AS customers FROM gold.dim_customers
+
+- id: q03
+  question: What is the total revenue (sum of item prices, excluding canceled and unavailable orders)?
+  sql: SELECT sum(revenue) AS revenue FROM gold.agg_daily_sales
+
+- id: q04
+  question: How many orders are there in each order status?
+  sql: SELECT order_status, count(*) AS orders FROM gold.fact_orders GROUP BY order_status
+
+- id: q05
+  question: What are the top 5 product categories by revenue, excluding canceled and unavailable orders?
+  sql: |
+    SELECT category_name, sum(price) AS revenue
+    FROM gold.fact_order_items
+    WHERE order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY category_name
+    ORDER BY revenue DESC
+    LIMIT 5
+
+- id: q06
+  question: What was the revenue for each month of 2017?
+  sql: |
+    SELECT date_trunc('month', order_date) AS month, sum(revenue) AS revenue
+    FROM gold.agg_daily_sales
+    WHERE year(order_date) = 2017
+    GROUP BY month
+
+- id: q07
+  question: What is the average review score across all reviews?
+  sql: SELECT avg(review_score) AS avg_review_score FROM silver.order_reviews
+
+- id: q08
+  question: What is the total payment value by payment type?
+  sql: SELECT payment_type, sum(payment_value) AS total_paid FROM silver.order_payments GROUP BY payment_type
+
+- id: q09
+  question: Which 10 customer states have the most orders?
+  sql: |
+    SELECT c.state, count(*) AS orders
+    FROM gold.fact_orders f
+    JOIN gold.dim_customers c ON f.customer_id = c.customer_id
+    GROUP BY c.state
+    ORDER BY orders DESC
+    LIMIT 10
+
+- id: q10
+  question: Which 5 customer states have the longest average delivery time in days for delivered orders?
+  sql: |
+    SELECT c.state, avg(f.delivery_days) AS avg_delivery_days
+    FROM gold.fact_orders f
+    JOIN gold.dim_customers c ON f.customer_id = c.customer_id
+    WHERE f.order_status = 'delivered' AND f.delivery_days IS NOT NULL
+    GROUP BY c.state
+    ORDER BY avg_delivery_days DESC
+    LIMIT 5
+
+- id: q11
+  question: What share of delivered orders arrived later than the estimated delivery date?
+  sql: |
+    SELECT avg(CASE WHEN is_late THEN 1.0 ELSE 0.0 END) AS late_rate
+    FROM gold.fact_orders
+    WHERE is_late IS NOT NULL
+
+- id: q12
+  question: Who are the top 5 sellers by revenue?
+  sql: |
+    SELECT seller_id, revenue
+    FROM gold.agg_seller_performance
+    ORDER BY revenue DESC
+    LIMIT 5
+
+- id: q13
+  question: Which single day had the most orders, and how many?
+  sql: |
+    SELECT order_date, orders
+    FROM gold.agg_daily_sales
+    ORDER BY orders DESC
+    LIMIT 1
+
+- id: q14
+  question: What percentage of unique customers placed more than one order?
+  sql: |
+    SELECT 100.0 * count(DISTINCT CASE WHEN is_repeat_customer THEN customer_unique_id END)
+           / count(DISTINCT customer_unique_id) AS repeat_customer_pct
+    FROM gold.dim_customers
+
+- id: q15
+  question: What is the average order value (items plus freight) of delivered orders?
+  sql: SELECT avg(order_value) AS avg_order_value FROM gold.fact_orders WHERE order_status = 'delivered'
+
+- id: q16
+  question: Which 5 states have the most sellers?
+  sql: |
+    SELECT state, count(*) AS sellers
+    FROM gold.dim_sellers
+    GROUP BY state
+    ORDER BY sellers DESC
+    LIMIT 5
+
+- id: q17
+  question: What is the average review score of late versus on-time delivered orders?
+  sql: |
+    SELECT is_late, avg(review_score) AS avg_review_score
+    FROM gold.fact_orders
+    WHERE is_late IS NOT NULL
+    GROUP BY is_late
+
+- id: q18
+  question: What are the top 5 product categories by number of items sold (excluding canceled and unavailable orders)?
+  sql: |
+    SELECT category_name, count(*) AS items_sold
+    FROM gold.fact_order_items
+    WHERE order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY category_name
+    ORDER BY items_sold DESC
+    LIMIT 5
+
+- id: q19
+  question: How many raw review rows were loaded into the bronze layer?
+  sql: SELECT count(*) AS raw_review_rows FROM bronze.order_reviews
+
+- id: q20
+  question: What is the average number of installments for credit card payments?
+  sql: SELECT avg(installments) AS avg_installments FROM silver.order_payments WHERE payment_type = 'credit_card'

@@ -1,0 +1,6 @@
+"customer_id","customer_unique_id","customer_zip_code_prefix","customer_city","customer_state"
+"c1","u1","01310","sao paulo","SP"
+"c2","u2","20040","rio de janeiro","RJ"
+"c3","u1","01310","sao paulo","SP"
+"c4","u3","30130"," belo horizonte ","mg"
+"c1","u1","01310","sao paulo","SP"

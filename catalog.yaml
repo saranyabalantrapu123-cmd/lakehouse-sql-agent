@@ -1,0 +1,445 @@
+# Data catalog for the Olist medallion lakehouse.
+# This file is the single source of truth the agent uses for discovery, keys and lineage,
+# and that `make quality` uses to run data-quality checks. Column types are read live from DuckDB.
+#
+# Per table:
+#   layer, description, upstream (lineage), primary_key, foreign_keys, columns {name: description}
+#   optional: source (raw file, bronze only), not_null (extra columns), max_null_rate {column: rate}
+#   foreign_keys[].severity: "error" (default) or "warn" for known/accepted gaps.
+
+version: 1
+dataset: Olist Brazilian E-Commerce (public, CC BY-NC-SA 4.0)
+
+layers:
+  bronze: Raw CSVs landed as-is. Every column is VARCHAR. Duplicates and bad values are kept. Keys are not enforced.
+  silver: Typed, trimmed and deduplicated on the business key. Standardised column names; product categories in English.
+  gold: Analytics-ready star schema (facts + dimensions) and pre-aggregated marts. Prefer this layer for business questions.
+
+# Audit columns added to every bronze table by the loader (documented once here).
+bronze_audit_columns:
+  _ingested_at: Timestamp (UTC) when the raw file was loaded into bronze.
+  _source_file: Name of the raw CSV file this row came from.
+
+tables:
+  # ---------------------------------------------------------------- BRONZE
+  bronze.customers:
+    layer: bronze
+    description: Raw customer records, one per order-level customer_id.
+    source: olist_customers_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      customer_id: Customer key as issued per order (raw text).
+      customer_unique_id: Stable identifier of the real person across orders (raw text).
+      customer_zip_code_prefix: First five digits of the customer zip code (raw text).
+      customer_city: Customer city (raw text).
+      customer_state: Customer state code (raw text).
+
+  bronze.orders:
+    layer: bronze
+    description: Raw order headers with status and lifecycle timestamps.
+    source: olist_orders_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      order_id: Order identifier (raw text).
+      customer_id: Customer key for this order (raw text).
+      order_status: Order status (raw text).
+      order_purchase_timestamp: Purchase timestamp (raw text).
+      order_approved_at: Payment approval timestamp (raw text).
+      order_delivered_carrier_date: Hand-off to carrier timestamp (raw text).
+      order_delivered_customer_date: Delivery to customer timestamp (raw text).
+      order_estimated_delivery_date: Estimated delivery date shown at purchase (raw text).
+
+  bronze.order_items:
+    layer: bronze
+    description: Raw order line items (one row per item in an order).
+    source: olist_order_items_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      order_id: Order identifier (raw text).
+      order_item_id: Sequential item number within the order (raw text).
+      product_id: Product identifier (raw text).
+      seller_id: Seller identifier (raw text).
+      shipping_limit_date: Seller shipping deadline (raw text).
+      price: Item price in BRL (raw text).
+      freight_value: Freight charged for the item in BRL (raw text).
+
+  bronze.order_payments:
+    layer: bronze
+    description: Raw payment records; an order can be paid with several payment methods.
+    source: olist_order_payments_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      order_id: Order identifier (raw text).
+      payment_sequential: Sequence number of the payment within the order (raw text).
+      payment_type: Payment method (raw text).
+      payment_installments: Number of installments (raw text).
+      payment_value: Amount paid in BRL (raw text).
+
+  bronze.order_reviews:
+    layer: bronze
+    description: Raw customer satisfaction reviews. review_id is not unique on its own.
+    source: olist_order_reviews_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      review_id: Review identifier (raw text).
+      order_id: Reviewed order (raw text).
+      review_score: Score from 1 to 5 (raw text).
+      review_comment_title: Review title in Portuguese (raw text).
+      review_comment_message: Review message in Portuguese (raw text).
+      review_creation_date: Date the survey was sent (raw text).
+      review_answer_timestamp: Timestamp the survey was answered (raw text).
+
+  bronze.products:
+    layer: bronze
+    description: Raw product attributes with Portuguese category names (column names keep the source typos).
+    source: olist_products_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      product_id: Product identifier (raw text).
+      product_category_name: Category name in Portuguese (raw text).
+      product_name_lenght: Number of characters in the product name (raw text, source typo).
+      product_description_lenght: Number of characters in the description (raw text, source typo).
+      product_photos_qty: Number of product photos (raw text).
+      product_weight_g: Weight in grams (raw text).
+      product_length_cm: Length in cm (raw text).
+      product_height_cm: Height in cm (raw text).
+      product_width_cm: Width in cm (raw text).
+
+  bronze.sellers:
+    layer: bronze
+    description: Raw seller records.
+    source: olist_sellers_dataset.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      seller_id: Seller identifier (raw text).
+      seller_zip_code_prefix: First five digits of the seller zip code (raw text).
+      seller_city: Seller city (raw text).
+      seller_state: Seller state code (raw text).
+
+  bronze.category_translation:
+    layer: bronze
+    description: Raw Portuguese-to-English product category name mapping.
+    source: product_category_name_translation.csv
+    upstream: []
+    primary_key: []
+    foreign_keys: []
+    columns:
+      product_category_name: Category name in Portuguese (raw text).
+      product_category_name_english: Category name in English (raw text).
+
+  # ---------------------------------------------------------------- SILVER
+  silver.customers:
+    layer: silver
+    description: Cleaned customers, one row per order-level customer_id. Use customer_unique_id to count real people.
+    upstream: [bronze.customers]
+    primary_key: [customer_id]
+    foreign_keys: []
+    not_null: [customer_unique_id, state]
+    columns:
+      customer_id: Customer key issued per order (an individual gets a new customer_id per order).
+      customer_unique_id: Stable identifier of the person across orders.
+      zip_code_prefix: Five-digit zip prefix, left-padded with zeros.
+      city: City name, lower-case.
+      state: Two-letter Brazilian state code, upper-case (e.g. SP, RJ).
+
+  silver.sellers:
+    layer: silver
+    description: Cleaned marketplace sellers.
+    upstream: [bronze.sellers]
+    primary_key: [seller_id]
+    foreign_keys: []
+    not_null: [state]
+    columns:
+      seller_id: Seller identifier.
+      zip_code_prefix: Five-digit zip prefix, left-padded with zeros.
+      city: City name, lower-case.
+      state: Two-letter Brazilian state code, upper-case.
+
+  silver.product_categories:
+    layer: silver
+    description: Category name dictionary (Portuguese -> English), including two categories missing from the source mapping.
+    upstream: [bronze.category_translation]
+    primary_key: [category_name_pt]
+    foreign_keys: []
+    not_null: [category_name]
+    columns:
+      category_name_pt: Category name in Portuguese (as used in the source).
+      category_name: Category name in English (snake_case).
+
+  silver.products:
+    layer: silver
+    description: Typed product attributes with English category names. Products without a category get 'unknown'.
+    upstream: [bronze.products, silver.product_categories]
+    primary_key: [product_id]
+    foreign_keys:
+      - columns: [category_name_pt]
+        references: silver.product_categories
+        ref_columns: [category_name_pt]
+        severity: warn   # products with no category in the source are labelled 'unknown'
+    not_null: [category_name]
+    columns:
+      product_id: Product identifier.
+      category_name: Category name in English ('unknown' when the source has none).
+      category_name_pt: Category name in Portuguese ('unknown' when the source has none).
+      name_length: Number of characters in the product name.
+      description_length: Number of characters in the product description.
+      photos_qty: Number of product photos.
+      weight_g: Weight in grams.
+      length_cm: Length in centimetres.
+      height_cm: Height in centimetres.
+      width_cm: Width in centimetres.
+
+  silver.orders:
+    layer: silver
+    description: Typed order headers with status and lifecycle timestamps.
+    upstream: [bronze.orders]
+    primary_key: [order_id]
+    foreign_keys:
+      - columns: [customer_id]
+        references: silver.customers
+        ref_columns: [customer_id]
+    not_null: [customer_id, order_status, purchased_at]
+    columns:
+      order_id: Order identifier.
+      customer_id: Customer who placed the order.
+      order_status: "Lifecycle status: delivered, shipped, canceled, unavailable, invoiced, processing, created, approved."
+      purchased_at: Purchase timestamp.
+      approved_at: Payment approval timestamp.
+      delivered_carrier_at: Timestamp the order was handed to the carrier.
+      delivered_customer_at: Timestamp the order was delivered to the customer (null if not delivered).
+      estimated_delivery_at: Estimated delivery date shown to the customer at purchase.
+
+  silver.order_items:
+    layer: silver
+    description: Typed order line items. One row per item; quantity is expressed as multiple rows.
+    upstream: [bronze.order_items]
+    primary_key: [order_id, order_item_id]
+    foreign_keys:
+      - columns: [order_id]
+        references: silver.orders
+        ref_columns: [order_id]
+      - columns: [product_id]
+        references: silver.products
+        ref_columns: [product_id]
+      - columns: [seller_id]
+        references: silver.sellers
+        ref_columns: [seller_id]
+    not_null: [product_id, seller_id, price]
+    columns:
+      order_id: Order identifier.
+      order_item_id: Sequential item number within the order (1..n).
+      product_id: Product sold.
+      seller_id: Seller who fulfilled the item.
+      shipping_limit_at: Deadline for the seller to hand the item to the carrier.
+      price: Item price in BRL.
+      freight_value: Freight charged for the item in BRL.
+
+  silver.order_payments:
+    layer: silver
+    description: Typed payments. An order can have several payments (e.g. card + voucher).
+    upstream: [bronze.order_payments]
+    primary_key: [order_id, payment_sequential]
+    foreign_keys:
+      - columns: [order_id]
+        references: silver.orders
+        ref_columns: [order_id]
+    not_null: [payment_type, payment_value]
+    columns:
+      order_id: Order identifier.
+      payment_sequential: Sequence number of the payment within the order.
+      payment_type: "Payment method: credit_card, boleto, voucher, debit_card, not_defined."
+      installments: Number of installments chosen.
+      payment_value: Amount paid in BRL.
+
+  silver.order_reviews:
+    layer: silver
+    description: Typed customer reviews. The same review_id can cover several orders, so the key is (review_id, order_id).
+    upstream: [bronze.order_reviews]
+    primary_key: [review_id, order_id]
+    foreign_keys:
+      - columns: [order_id]
+        references: silver.orders
+        ref_columns: [order_id]
+    not_null: [review_score]
+    columns:
+      review_id: Review identifier.
+      order_id: Reviewed order.
+      review_score: Satisfaction score from 1 (worst) to 5 (best).
+      comment_title: Review title in Portuguese (null when empty).
+      comment_message: Review text in Portuguese (null when empty).
+      created_at: Date the satisfaction survey was sent.
+      answered_at: Timestamp the survey was answered.
+
+  # ---------------------------------------------------------------- GOLD
+  gold.dim_customers:
+    layer: gold
+    description: Customer dimension at customer_id grain with repeat-purchase attributes from customer_unique_id.
+    upstream: [silver.customers, silver.orders]
+    primary_key: [customer_id]
+    foreign_keys: []
+    not_null: [customer_unique_id, state]
+    columns:
+      customer_id: Customer key (joins to fact_orders.customer_id).
+      customer_unique_id: Stable identifier of the person; count distinct of this = number of real customers.
+      zip_code_prefix: Five-digit zip prefix.
+      city: City name, lower-case.
+      state: Two-letter Brazilian state code.
+      lifetime_orders: Total orders placed by this person (by customer_unique_id).
+      is_repeat_customer: True when the person placed more than one order.
+
+  gold.dim_products:
+    layer: gold
+    description: Product dimension with English category and physical attributes.
+    upstream: [silver.products]
+    primary_key: [product_id]
+    foreign_keys: []
+    not_null: [category_name]
+    columns:
+      product_id: Product identifier.
+      category_name: Category name in English ('unknown' when missing).
+      category_name_pt: Category name in Portuguese.
+      name_length: Number of characters in the product name.
+      description_length: Number of characters in the product description.
+      photos_qty: Number of product photos.
+      weight_g: Weight in grams.
+      length_cm: Length in centimetres.
+      height_cm: Height in centimetres.
+      width_cm: Width in centimetres.
+      volume_cm3: length_cm * height_cm * width_cm.
+
+  gold.dim_sellers:
+    layer: gold
+    description: Seller dimension.
+    upstream: [silver.sellers]
+    primary_key: [seller_id]
+    foreign_keys: []
+    not_null: [state]
+    columns:
+      seller_id: Seller identifier.
+      zip_code_prefix: Five-digit zip prefix.
+      city: City name, lower-case.
+      state: Two-letter Brazilian state code.
+
+  gold.fact_orders:
+    layer: gold
+    description: >-
+      One row per order with value, payment, delivery and review measures. Includes every status;
+      filter order_status NOT IN ('canceled','unavailable') for sales. Revenue = items_value (excl. freight).
+    upstream: [silver.orders, silver.order_items, silver.order_payments, silver.order_reviews]
+    primary_key: [order_id]
+    foreign_keys:
+      - columns: [customer_id]
+        references: gold.dim_customers
+        ref_columns: [customer_id]
+    not_null: [customer_id, order_status, order_date]
+    max_null_rate:
+      review_score: 0.02
+    columns:
+      order_id: Order identifier.
+      customer_id: Customer who placed the order (FK to dim_customers).
+      order_status: Lifecycle status (delivered, shipped, canceled, unavailable, invoiced, processing, created, approved).
+      purchased_at: Purchase timestamp.
+      order_date: Purchase date.
+      order_month: First day of the purchase month (use for monthly trends).
+      approved_at: Payment approval timestamp.
+      delivered_at: Delivery-to-customer timestamp (null if not delivered).
+      estimated_delivery_at: Estimated delivery date promised at purchase.
+      delivery_days: Days from purchase to delivery (fractional; null if not delivered).
+      is_late: True when delivered after the estimated date; null if not delivered.
+      item_count: Number of items in the order.
+      seller_count: Number of distinct sellers in the order.
+      items_value: Sum of item prices in BRL (revenue, excluding freight).
+      freight_value: Sum of freight in BRL.
+      order_value: items_value + freight_value in BRL (GMV).
+      payment_value: Total paid across all payments in BRL.
+      primary_payment_type: Payment method that covered the largest share of the order.
+      installments: Maximum number of installments across the order's payments.
+      review_score: Average review score for the order (1-5; null if not reviewed).
+
+  gold.fact_order_items:
+    layer: gold
+    description: One row per order line item, denormalised with order date, status and product category.
+    upstream: [silver.order_items, silver.orders, silver.products]
+    primary_key: [order_id, order_item_id]
+    foreign_keys:
+      - columns: [order_id]
+        references: gold.fact_orders
+        ref_columns: [order_id]
+      - columns: [product_id]
+        references: gold.dim_products
+        ref_columns: [product_id]
+      - columns: [seller_id]
+        references: gold.dim_sellers
+        ref_columns: [seller_id]
+      - columns: [customer_id]
+        references: gold.dim_customers
+        ref_columns: [customer_id]
+    not_null: [product_id, seller_id, price, order_date, category_name]
+    columns:
+      order_id: Order identifier (FK to fact_orders).
+      order_item_id: Sequential item number within the order.
+      product_id: Product sold (FK to dim_products).
+      seller_id: Seller who fulfilled the item (FK to dim_sellers).
+      customer_id: Customer who placed the order (FK to dim_customers).
+      order_status: Status of the parent order.
+      order_date: Purchase date of the parent order.
+      category_name: Product category in English.
+      price: Item price in BRL (revenue).
+      freight_value: Freight charged for the item in BRL.
+      total_value: price + freight_value in BRL.
+      shipping_limit_at: Seller shipping deadline.
+
+  gold.agg_daily_sales:
+    layer: gold
+    description: Daily sales mart. Excludes canceled and unavailable orders.
+    upstream: [gold.fact_orders, gold.dim_customers]
+    primary_key: [order_date]
+    foreign_keys: []
+    not_null: [orders, revenue]
+    columns:
+      order_date: Purchase date.
+      orders: Number of orders placed that day.
+      items: Number of items sold.
+      revenue: Sum of item prices in BRL (excluding freight).
+      freight: Sum of freight in BRL.
+      gmv: revenue + freight in BRL.
+      avg_order_value: gmv / orders in BRL.
+      unique_customers: Distinct customer_unique_id that ordered that day.
+
+  gold.agg_seller_performance:
+    layer: gold
+    description: One row per seller with sales, satisfaction and delivery KPIs. Excludes canceled and unavailable orders.
+    upstream: [gold.fact_order_items, gold.fact_orders, gold.dim_sellers]
+    primary_key: [seller_id]
+    foreign_keys:
+      - columns: [seller_id]
+        references: gold.dim_sellers
+        ref_columns: [seller_id]
+    not_null: [orders, revenue]
+    columns:
+      seller_id: Seller identifier (FK to dim_sellers).
+      seller_state: Seller state code.
+      orders: Distinct orders containing at least one item from this seller.
+      items_sold: Number of items sold.
+      revenue: Sum of item prices in BRL (excluding freight).
+      freight: Sum of freight in BRL.
+      avg_item_price: Average item price in BRL.
+      first_sale_date: Date of the first sale.
+      last_sale_date: Date of the most recent sale.
+      avg_review_score: Average review score of the seller's orders (1-5).
+      avg_delivery_days: Average purchase-to-delivery days of the seller's delivered orders.
+      late_delivery_rate: Share of the seller's delivered orders that arrived after the estimated date (0-1).

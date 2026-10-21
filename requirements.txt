@@ -1,0 +1,10 @@
+duckdb>=1.1
+sqlglot>=25.0
+langgraph>=0.2.50
+litellm>=1.50
+mcp>=1.2
+streamlit>=1.48
+pandas>=2.2
+PyYAML>=6.0
+tabulate>=0.9
+pytest>=8.0
